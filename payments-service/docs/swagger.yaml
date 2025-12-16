@@ -1,0 +1,175 @@
+basePath: /
+definitions:
+  main.Payment:
+    properties:
+      amount:
+        type: number
+      createdAt:
+        type: string
+      id:
+        type: integer
+      order_id:
+        type: integer
+      payment_method:
+        enum:
+        - card
+        - cash
+        - paypal
+        type: string
+      status:
+        enum:
+        - pending
+        - completed
+        - failed
+        - refunded
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - amount
+    - order_id
+    - payment_method
+    - status
+    type: object
+host: localhost:8004
+info:
+  contact: {}
+  description: Микросервис управления платежами
+  title: Payments Service API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Проверка состояния сервиса
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /payments:
+    get:
+      description: Получить список всех платежей
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Payment'
+            type: array
+      summary: Get all payments
+      tags:
+      - payments
+    post:
+      consumes:
+      - application/json
+      description: Создать новый платеж
+      parameters:
+      - description: Payment data
+        in: body
+        name: payment
+        required: true
+        schema:
+          $ref: '#/definitions/main.Payment'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Payment'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create payment
+      tags:
+      - payments
+  /payments/{id}:
+    delete:
+      description: Удалить платеж
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete payment
+      tags:
+      - payments
+    get:
+      description: Получить платеж по ID
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Payment'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get payment by ID
+      tags:
+      - payments
+    put:
+      consumes:
+      - application/json
+      description: Обновить данные платежа
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Payment data
+        in: body
+        name: payment
+        required: true
+        schema:
+          $ref: '#/definitions/main.Payment'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Payment'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update payment
+      tags:
+      - payments
+swagger: "2.0"

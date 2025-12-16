@@ -1,0 +1,35 @@
+# Multi-stage Docker build
+FROM golang:1.23-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /build
+
+COPY go.mod go.sum* ./
+RUN go mod download || go mod tidy
+
+COPY . .
+
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o payments-service ./cmd/main.go
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates postgresql-client tzdata
+RUN adduser -D -g "" appuser
+
+WORKDIR /app
+
+COPY --from=builder /build/payments-service /app/payments-service
+COPY --from=builder /build/docs ./docs 2>/dev/null || true
+
+RUN chown -R appuser:appuser /app && chmod +x /app/payments-service
+
+USER appuser
+
+EXPOSE 8003
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+    CMD wget --quiet --tries=1 --spider http://localhost:8003/health || exit 1
+
+CMD ["/app/payments-service"]

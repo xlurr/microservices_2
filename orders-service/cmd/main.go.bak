@@ -1,0 +1,206 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+)
+
+// @title Orders Service API
+// @version 1.0
+// @description REST API для управления заказами
+// @host localhost:8002
+// @BasePath /
+
+type Order struct {
+	ID          int64       `json:"id"`
+	UserID      int64       `json:"user_id"`
+	Items       interface{} `json:"items"`
+	TotalAmount float64     `json:"total_amount"`
+	Status      string      `json:"status"`
+	CreatedAt   string      `json:"created_at"`
+	UpdatedAt   string      `json:"updated_at"`
+}
+
+type SystemID struct {
+	ReplicaID string `json:"replica_id"`
+}
+
+var db *sql.DB
+var replicaID string
+
+func main() {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5432/orders_db?sslmode=disable"
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8002"
+	}
+
+	replicaID = os.Getenv("REPLICA_ID")
+	if replicaID == "" {
+		replicaID = "instance-default"
+	}
+
+	var err error
+	db, err = sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	log.Printf("✅ Connected to PostgreSQL (orders-service - %s)", replicaID)
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/health", healthCheck).Methods("GET")
+	router.HandleFunc("/system-id", getSystemID).Methods("GET")
+	router.HandleFunc("/orders", getOrders).Methods("GET")
+	router.HandleFunc("/orders/{id}", getOrder).Methods("GET")
+	router.HandleFunc("/orders", createOrder).Methods("POST")
+	router.HandleFunc("/orders/{id}", updateOrder).Methods("PUT")
+	router.HandleFunc("/orders/{id}", deleteOrder).Methods("DELETE")
+
+	log.Printf("🚀 Orders Service (%s) started on port %s", replicaID, port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getSystemID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(SystemID{ReplicaID: replicaID})
+}
+
+func getOrders(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, user_id, items, total_amount, status, created_at, updated_at FROM orders ORDER BY id LIMIT 100")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var orders []Order
+	for rows.Next() {
+		var o Order
+		var items string
+		if err := rows.Scan(&o.ID, &o.UserID, &items, &o.TotalAmount, &o.Status, &o.CreatedAt, &o.UpdatedAt); err != nil {
+			continue
+		}
+		json.Unmarshal([]byte(items), &o.Items)
+		orders = append(orders, o)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(orders)
+}
+
+func getOrder(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var o Order
+	var items string
+	err := db.QueryRow("SELECT id, user_id, items, total_amount, status, created_at, updated_at FROM orders WHERE id = $1", id).
+		Scan(&o.ID, &o.UserID, &items, &o.TotalAmount, &o.Status, &o.CreatedAt, &o.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+	json.Unmarshal([]byte(items), &o.Items)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(o)
+}
+
+func createOrder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID      int64         `json:"user_id"`
+		Items       []string      `json:"items"`
+		TotalAmount float64       `json:"total_amount"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	itemsJSON, _ := json.Marshal(req.Items)
+	var o Order
+	var items string
+	err := db.QueryRow(
+		"INSERT INTO orders (user_id, items, total_amount, status, created_at, updated_at) VALUES ($1, $2, $3, 'created', NOW(), NOW()) RETURNING id, user_id, items, total_amount, status, created_at, updated_at",
+		req.UserID, string(itemsJSON), req.TotalAmount,
+	).Scan(&o.ID, &o.UserID, &items, &o.TotalAmount, &o.Status, &o.CreatedAt, &o.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Error creating order", http.StatusBadRequest)
+		return
+	}
+	json.Unmarshal([]byte(items), &o.Items)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(o)
+}
+
+func updateOrder(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var o Order
+	var items string
+	err := db.QueryRow(
+		"UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, user_id, items, total_amount, status, created_at, updated_at",
+		req.Status, id,
+	).Scan(&o.ID, &o.UserID, &items, &o.TotalAmount, &o.Status, &o.CreatedAt, &o.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+	json.Unmarshal([]byte(items), &o.Items)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(o)
+}
+
+func deleteOrder(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	result, err := db.Exec("DELETE FROM orders WHERE id = $1", id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

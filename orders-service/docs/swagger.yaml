@@ -1,0 +1,189 @@
+basePath: /
+definitions:
+  main.Order:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: integer
+      status:
+        enum:
+        - pending
+        - confirmed
+        - shipped
+        - delivered
+        - cancelled
+        type: string
+      total_amount:
+        type: number
+      updatedAt:
+        type: string
+      user_id:
+        type: integer
+    required:
+    - status
+    - total_amount
+    - user_id
+    type: object
+  main.SystemInfo:
+    properties:
+      replica_id:
+        type: string
+      timestamp:
+        type: string
+    type: object
+host: localhost:8002
+info:
+  contact: {}
+  description: Микросервис управления заказами с балансировкой нагрузки
+  title: Orders Service API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Проверка состояния сервиса
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /orders:
+    get:
+      description: Получить список всех заказов
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Order'
+            type: array
+      summary: Get all orders
+      tags:
+      - orders
+    post:
+      consumes:
+      - application/json
+      description: Создать новый заказ
+      parameters:
+      - description: Order data
+        in: body
+        name: order
+        required: true
+        schema:
+          $ref: '#/definitions/main.Order'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Order'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create order
+      tags:
+      - orders
+  /orders/{id}:
+    delete:
+      description: Удалить заказ
+      parameters:
+      - description: Order ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete order
+      tags:
+      - orders
+    get:
+      description: Получить заказ по ID
+      parameters:
+      - description: Order ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Order'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get order by ID
+      tags:
+      - orders
+    put:
+      consumes:
+      - application/json
+      description: Обновить данные заказа
+      parameters:
+      - description: Order ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Order data
+        in: body
+        name: order
+        required: true
+        schema:
+          $ref: '#/definitions/main.Order'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Order'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update order
+      tags:
+      - orders
+  /system-id:
+    get:
+      description: Получить ID реплики для проверки балансировки
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.SystemInfo'
+      summary: Get system ID
+      tags:
+      - system
+swagger: "2.0"

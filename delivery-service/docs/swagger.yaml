@@ -1,0 +1,172 @@
+basePath: /
+definitions:
+  main.Delivery:
+    properties:
+      address:
+        maxLength: 500
+        minLength: 10
+        type: string
+      courier_id:
+        type: integer
+      createdAt:
+        type: string
+      id:
+        type: integer
+      order_id:
+        type: integer
+      status:
+        enum:
+        - pending
+        - in_transit
+        - delivered
+        - failed
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - address
+    - order_id
+    - status
+    type: object
+host: localhost:8005
+info:
+  contact: {}
+  description: Микросервис управления доставкой
+  title: Delivery Service API
+  version: "1.0"
+paths:
+  /deliveries:
+    get:
+      description: Получить список всех доставок
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.Delivery'
+            type: array
+      summary: Get all deliveries
+      tags:
+      - deliveries
+    post:
+      consumes:
+      - application/json
+      description: Создать новую доставку
+      parameters:
+      - description: Delivery data
+        in: body
+        name: delivery
+        required: true
+        schema:
+          $ref: '#/definitions/main.Delivery'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/main.Delivery'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create delivery
+      tags:
+      - deliveries
+  /deliveries/{id}:
+    delete:
+      description: Удалить доставку
+      parameters:
+      - description: Delivery ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete delivery
+      tags:
+      - deliveries
+    get:
+      description: Получить доставку по ID
+      parameters:
+      - description: Delivery ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Delivery'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get delivery by ID
+      tags:
+      - deliveries
+    put:
+      consumes:
+      - application/json
+      description: Обновить данные доставки
+      parameters:
+      - description: Delivery ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Delivery data
+        in: body
+        name: delivery
+        required: true
+        schema:
+          $ref: '#/definitions/main.Delivery'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.Delivery'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update delivery
+      tags:
+      - deliveries
+  /health:
+    get:
+      description: Проверка состояния сервиса
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+swagger: "2.0"

@@ -1,0 +1,182 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+)
+
+// @title Users Service API
+// @version 1.0
+// @description REST API для управления пользователями
+// @host localhost:8001
+// @BasePath /
+
+type User struct {
+	ID        int64  `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Age       int    `json:"age"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+var db *sql.DB
+
+func main() {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5431/users_db?sslmode=disable"
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8001"
+	}
+
+	var err error
+	db, err = sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	log.Println("✅ Connected to PostgreSQL (users-service)")
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/health", healthCheck).Methods("GET")
+	router.HandleFunc("/users", getUsers).Methods("GET")
+	router.HandleFunc("/users/{id}", getUser).Methods("GET")
+	router.HandleFunc("/users", createUser).Methods("POST")
+	router.HandleFunc("/users/{id}", updateUser).Methods("PUT")
+	router.HandleFunc("/users/{id}", deleteUser).Methods("DELETE")
+
+	log.Printf("🚀 Users Service started on port %s", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getUsers(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, email, name, age, created_at, updated_at FROM users ORDER BY id LIMIT 100")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Age, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
+func getUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var u User
+	err := db.QueryRow("SELECT id, email, name, age, created_at, updated_at FROM users WHERE id = $1", id).
+		Scan(&u.ID, &u.Email, &u.Name, &u.Age, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(u)
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+		Age   int    `json:"age"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var u User
+	err := db.QueryRow(
+		"INSERT INTO users (email, name, age, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id, email, name, age, created_at, updated_at",
+		req.Email, req.Name, req.Age,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Age, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Error creating user", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(u)
+}
+
+func updateUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var req struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+		Age   int    `json:"age"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var u User
+	err := db.QueryRow(
+		"UPDATE users SET email = $1, name = $2, age = $3, updated_at = NOW() WHERE id = $4 RETURNING id, email, name, age, created_at, updated_at",
+		req.Email, req.Name, req.Age, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Age, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(u)
+}
+
+func deleteUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	result, err := db.Exec("DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

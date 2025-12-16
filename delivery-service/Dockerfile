@@ -1,0 +1,34 @@
+# Multi-stage Docker build
+FROM golang:1.23-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /build
+
+COPY go.mod go.sum* ./
+RUN go mod download || go mod tidy
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o delivery-service ./cmd/main.go
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates postgresql-client tzdata
+RUN adduser -D -g "" appuser
+
+WORKDIR /app
+
+COPY --from=builder /build/delivery-service /app/delivery-service
+
+RUN chown -R appuser:appuser /app && chmod +x /app/delivery-service
+
+USER appuser
+
+EXPOSE 8004
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+    CMD wget --quiet --tries=1 --spider http://localhost:8004/health || exit 1
+
+CMD ["/app/delivery-service"]

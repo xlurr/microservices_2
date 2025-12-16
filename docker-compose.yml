@@ -1,0 +1,333 @@
+services:
+  # ========== DATABASES ==========
+  
+  users-db:
+    image: postgres:15-alpine
+    container_name: users-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: users_db
+    volumes:
+      - users_data:/var/lib/postgresql/data
+      - ./init-scripts/001-users-init.sql:/docker-entrypoint-initdb.d/001-init.sql
+    ports:
+      - "5431:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d users_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  orders-db:
+    image: postgres:15-alpine
+    container_name: orders-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders_db
+    volumes:
+      - orders_data:/var/lib/postgresql/data
+      - ./init-scripts/002-orders-init.sql:/docker-entrypoint-initdb.d/002-init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  payments-db:
+    image: postgres:15-alpine
+    container_name: payments-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payments_db
+    volumes:
+      - payments_data:/var/lib/postgresql/data
+      - ./init-scripts/003-payments-init.sql:/docker-entrypoint-initdb.d/003-init.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payments_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  delivery-db:
+    image: postgres:15-alpine
+    container_name: delivery-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: delivery_db
+    volumes:
+      - delivery_data:/var/lib/postgresql/data
+      - ./init-scripts/004-deliveries-init.sql:/docker-entrypoint-initdb.d/004-init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d delivery_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== MICROSERVICES ==========
+
+  users-service:
+    build:
+      context: ./users-service
+      dockerfile: Dockerfile
+    container_name: users-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@users-db:5432/users_db?sslmode=disable
+      GATEWAY_URL: http://api-gateway
+      PORT: 8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      users-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  orders-service-1:
+    build:
+      context: ./orders-service
+      dockerfile: Dockerfile
+    container_name: orders-service-1
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@orders-db:5432/orders_db?sslmode=disable
+      PORT: 8002
+      REPLICA_ID: instance-1
+    ports:
+      - "8002:8002"
+    depends_on:
+      orders-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  orders-service-2:
+    build:
+      context: ./orders-service
+      dockerfile: Dockerfile
+    container_name: orders-service-2
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@orders-db:5432/orders_db?sslmode=disable
+      PORT: 8002
+      REPLICA_ID: instance-2
+    ports:
+      - "8003:8002"
+    depends_on:
+      orders-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  payments-service:
+    build:
+      context: ./payments-service
+      dockerfile: Dockerfile
+    container_name: payments-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@payments-db:5432/payments_db?sslmode=disable
+      PORT: 8003
+    ports:
+      - "8004:8003"
+    depends_on:
+      payments-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  delivery-service:
+    build:
+      context: ./delivery-service
+      dockerfile: Dockerfile
+    container_name: delivery-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@delivery-db:5432/delivery_db?sslmode=disable
+      PORT: 8004
+    ports:
+      - "8005:8004"
+    depends_on:
+      delivery-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8004/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== API GATEWAY ==========
+
+  api-gateway:
+    image: nginx:alpine
+    container_name: api-gateway
+    depends_on:
+      users-service:
+        condition: service_healthy
+      orders-service-1:
+        condition: service_healthy
+      orders-service-2:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+      delivery-service:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== PGADMIN ==========
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - users-db
+      - orders-db
+      - payments-db
+      - delivery-db
+    networks:
+      - microservices-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  users_data:
+    driver: local
+  orders_data:
+    driver: local
+  payments_data:
+    driver: local
+  delivery_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  microservices-network:
+    driver: bridge

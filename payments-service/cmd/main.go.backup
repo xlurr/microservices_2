@@ -1,0 +1,174 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+)
+
+type Payment struct {
+	ID        int64   `json:"id"`
+	UserID    int64   `json:"user_id"`
+	OrderID   int64   `json:"order_id"`
+	Amount    float64 `json:"amount"`
+	Status    string  `json:"status"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
+var db *sql.DB
+
+func main() {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5433/payments_db?sslmode=disable"
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8003"
+	}
+
+	var err error
+	db, err = sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	log.Println("✅ Connected to PostgreSQL (payments-service)")
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/health", healthCheck).Methods("GET")
+	router.HandleFunc("/payments", getPayments).Methods("GET")
+	router.HandleFunc("/payments/{id}", getPayment).Methods("GET")
+	router.HandleFunc("/payments", createPayment).Methods("POST")
+	router.HandleFunc("/payments/{id}", updatePayment).Methods("PUT")
+	router.HandleFunc("/payments/{id}", deletePayment).Methods("DELETE")
+
+	log.Printf("🚀 Payments Service started on port %s", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getPayments(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, user_id, order_id, amount, status, created_at, updated_at FROM payments ORDER BY id LIMIT 100")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var payments []Payment
+	for rows.Next() {
+		var p Payment
+		if err := rows.Scan(&p.ID, &p.UserID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			continue
+		}
+		payments = append(payments, p)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payments)
+}
+
+func getPayment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var p Payment
+	err := db.QueryRow("SELECT id, user_id, order_id, amount, status, created_at, updated_at FROM payments WHERE id = $1", id).
+		Scan(&p.ID, &p.UserID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Payment not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(p)
+}
+
+func createPayment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID  int64   `json:"user_id"`
+		OrderID int64   `json:"order_id"`
+		Amount  float64 `json:"amount"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var p Payment
+	err := db.QueryRow(
+		"INSERT INTO payments (user_id, order_id, amount, status, created_at, updated_at) VALUES ($1, $2, $3, 'pending', NOW(), NOW()) RETURNING id, user_id, order_id, amount, status, created_at, updated_at",
+		req.UserID, req.OrderID, req.Amount,
+	).Scan(&p.ID, &p.UserID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Error creating payment", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(p)
+}
+
+func updatePayment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var p Payment
+	err := db.QueryRow(
+		"UPDATE payments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, user_id, order_id, amount, status, created_at, updated_at",
+		req.Status, id,
+	).Scan(&p.ID, &p.UserID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Payment not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(p)
+}
+
+func deletePayment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	result, err := db.Exec("DELETE FROM payments WHERE id = $1", id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "Payment not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

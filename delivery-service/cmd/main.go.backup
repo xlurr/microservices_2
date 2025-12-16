@@ -1,0 +1,176 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+)
+
+type Delivery struct {
+	ID         int64  `json:"id"`
+	UserID     int64  `json:"user_id"`
+	OrderID    int64  `json:"order_id"`
+	Address    string `json:"address"`
+	Status     string `json:"status"`
+	TrackingID string `json:"tracking_id"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+var db *sql.DB
+
+func main() {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5434/delivery_db?sslmode=disable"
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8004"
+	}
+
+	var err error
+	db, err = sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	log.Println("✅ Connected to PostgreSQL (delivery-service)")
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/health", healthCheck).Methods("GET")
+	router.HandleFunc("/deliveries", getDeliveries).Methods("GET")
+	router.HandleFunc("/deliveries/{id}", getDelivery).Methods("GET")
+	router.HandleFunc("/deliveries", createDelivery).Methods("POST")
+	router.HandleFunc("/deliveries/{id}", updateDelivery).Methods("PUT")
+	router.HandleFunc("/deliveries/{id}", deleteDelivery).Methods("DELETE")
+
+	log.Printf("🚀 Delivery Service started on port %s", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func getDeliveries(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, user_id, order_id, address, status, tracking_id, created_at, updated_at FROM deliveries ORDER BY id LIMIT 100")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var deliveries []Delivery
+	for rows.Next() {
+		var d Delivery
+		if err := rows.Scan(&d.ID, &d.UserID, &d.OrderID, &d.Address, &d.Status, &d.TrackingID, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			continue
+		}
+		deliveries = append(deliveries, d)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(deliveries)
+}
+
+func getDelivery(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var d Delivery
+	err := db.QueryRow("SELECT id, user_id, order_id, address, status, tracking_id, created_at, updated_at FROM deliveries WHERE id = $1", id).
+		Scan(&d.ID, &d.UserID, &d.OrderID, &d.Address, &d.Status, &d.TrackingID, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Delivery not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(d)
+}
+
+func createDelivery(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID     int64  `json:"user_id"`
+		OrderID    int64  `json:"order_id"`
+		Address    string `json:"address"`
+		TrackingID string `json:"tracking_id"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var d Delivery
+	err := db.QueryRow(
+		"INSERT INTO deliveries (user_id, order_id, address, tracking_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, 'pending', NOW(), NOW()) RETURNING id, user_id, order_id, address, status, tracking_id, created_at, updated_at",
+		req.UserID, req.OrderID, req.Address, req.TrackingID,
+	).Scan(&d.ID, &d.UserID, &d.OrderID, &d.Address, &d.Status, &d.TrackingID, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Error creating delivery", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(d)
+}
+
+func updateDelivery(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var d Delivery
+	err := db.QueryRow(
+		"UPDATE deliveries SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, user_id, order_id, address, status, tracking_id, created_at, updated_at",
+		req.Status, id,
+	).Scan(&d.ID, &d.UserID, &d.OrderID, &d.Address, &d.Status, &d.TrackingID, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		http.Error(w, "Delivery not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(d)
+}
+
+func deleteDelivery(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.ParseInt(vars["id"], 10, 64)
+
+	result, err := db.Exec("DELETE FROM deliveries WHERE id = $1", id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "Delivery not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
