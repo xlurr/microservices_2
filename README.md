@@ -1,51 +1,119 @@
-Компоненты системы:
+PROJECT: Microservices Architecture Demo
+AUTHOR: xlurr
+
+==================================================
+DESCRIPTION
+==================================================
+
+This project demonstrates a microservices architecture
+where all inter-service communication goes ONLY through
+an API Gateway (Nginx).
+
+Services DO NOT communicate directly with each other.
+The gateway acts as a single entry point and load balancer.
+
+==================================================
+ARCHITECTURE OVERVIEW
+==================================================
+
+Client
+|
+v
 API Gateway (Nginx)
-Users Service - порт 8001
-Orders Service-1 (реплика) - порт 8002
-Orders Service-2 (реплика) - порт 8003
-Payments Service - порт 8004
-Delivery Service - порт 8005
-pgAdmin (управление БД) - порт 5050
-4 PostgreSQL базы данных
+|
+|----> users-service ----> users-db
+|
+|----> orders-service (replica 1) ----\
+ | > orders-db
+|----> orders-service (replica 2) ----/
+|
+|----> payments-service ----> payments-db
+|
+|----> delivery-service ----> delivery-db
 
-📁 Структура проекта создана:
+==================================================
+CORE PRINCIPLES
+==================================================
 
-.
-./payments-service
-./payments-service/cmd
-./payments-service/internal
-./delivery-service
-./delivery-service/cmd
-./delivery-service/internal
-./nginx
-./orders-service
-./orders-service/cmd
-./orders-service/internal
-./init-scripts
-./users-service
-./users-service/cmd
-./users-service/internal
+- No direct service-to-service calls
+- All HTTP traffic goes through API Gateway
+- Load balancing handled by Nginx
+- Orders service runs in multiple replicas
+- Each service has its own database
 
-🚀 Запуск проекта:
+==================================================
+SERVICE COMMUNICATION
+==================================================
 
-1.  docker-compose up --build
-2.  Ждать ~30-60 секунд
-3.  Открыть http://localhost
+Each service uses the environment variable:
 
-🔄 Демонстрация балансировки:
-for i in {1..5}; do curl http://localhost/services/orders/api/system-id | jq . ; done
+GATEWAY_URL = http://api-gateway
 
-📊 Полезные команды:
-docker-compose ps # Статус контейнеров
-docker-compose logs -f # Реал-тайм логи
-docker-compose down # Остановить
-docker-compose down -v --rmi all # Полная очистка
+Example (users-service -> orders-service):
 
-💾 PostgreSQL управление:
-pgAdmin: http://localhost:5050
-Email: admin@example.com
-Password: admin
+users-service
+|
+| HTTP request to:
+| http://api-gateway/api/orders/user/{id}
+|
+v
+API Gateway (Nginx)
+|
+| load balancing
+|
+v
+orders-service replica
 
-📋 SQL операции:
-docker-compose exec users-db psql -U postgres -d users_db
-docker-compose exec users-db pg_dump -U postgres users_db > backup.sql
+==================================================
+LOAD BALANCING
+==================================================
+
+Orders service has multiple instances:
+
+orders-service-1
+orders-service-2
+
+Nginx distributes requests between them automatically.
+
+==================================================
+DEMONSTRATION SCRIPT
+==================================================
+
+File: showbalance.sh (located in project root)
+
+Purpose:
+
+- Send multiple requests through API Gateway
+- Show which orders-service replica handled each request
+
+Usage:
+
+chmod +x showbalance.sh
+./showbalance.sh
+
+Expected output example:
+
+Request 1 -> instance-1
+Request 2 -> instance-2
+Request 3 -> instance-1
+Request 4 -> instance-2
+
+==================================================
+PROJECT START
+==================================================
+
+To start the entire system:
+
+docker-compose up --build
+
+==================================================
+SUMMARY
+==================================================
+
+This project clearly demonstrates:
+
+- API Gateway pattern
+- Load balancing
+- Service isolation
+- Centralized routing
+- Microservice-based architecture
