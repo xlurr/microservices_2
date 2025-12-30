@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
+
+	_ "orders-service/docs"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 	httpSwagger "github.com/swaggo/http-swagger"
-	_ "orders-service/docs"
 )
 
 var db *sql.DB
@@ -19,9 +21,9 @@ var replicaID string
 
 type Order struct {
 	ID          int     `json:"id"`
-	UserID      int     `json:"user_id" validate:"required"`
-	TotalAmount float64 `json:"total_amount" validate:"required,gt=0"`
-	Status      string  `json:"status" validate:"required,oneof=pending confirmed shipped delivered cancelled"`
+	UserID      int     `json:"user_id"`
+	TotalAmount float64 `json:"total_amount"`
+	Status      string  `json:"status"`
 	CreatedAt   string  `json:"createdAt"`
 	UpdatedAt   string  `json:"updatedAt"`
 }
@@ -29,6 +31,16 @@ type Order struct {
 type SystemInfo struct {
 	ReplicaID string `json:"replica_id"`
 	Timestamp string `json:"timestamp"`
+}
+
+// ========== LOGGING MIDDLEWARE ==========
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		log.Printf("📥 [%s] %s %s - from %s", replicaID, r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+		log.Printf("✅ [%s] %s %s - completed in %v", replicaID, r.Method, r.URL.Path, time.Since(start))
+	})
 }
 
 // @title Orders Service API
@@ -44,7 +56,7 @@ func main() {
 
 	replicaID = os.Getenv("REPLICA_ID")
 	if replicaID == "" {
-		replicaID = "default"
+		replicaID = "unknown"
 	}
 
 	var err error
@@ -65,6 +77,10 @@ func main() {
 	}
 
 	router := mux.NewRouter()
+
+	// ========== ВКЛЮЧАЕМ ЛОГИРОВАНИЕ ==========
+	router.Use(loggingMiddleware)
+
 	router.HandleFunc("/health", healthCheck).Methods("GET")
 	router.HandleFunc("/system-id", getSystemID).Methods("GET")
 	router.HandleFunc("/orders", getOrders).Methods("GET")
@@ -72,11 +88,12 @@ func main() {
 	router.HandleFunc("/orders", createOrder).Methods("POST")
 	router.HandleFunc("/orders/{id}", updateOrder).Methods("PUT")
 	router.HandleFunc("/orders/{id}", deleteOrder).Methods("DELETE")
-	
+
 	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	log.Printf("🚀 Orders Service (%s) started on port %s", replicaID, port)
 	log.Printf("📚 Swagger UI: http://localhost:%s/swagger/index.html", port)
+
 	if err := http.ListenAndServe(":"+port, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
@@ -103,7 +120,7 @@ func getSystemID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(SystemInfo{
 		ReplicaID: replicaID,
-		Timestamp: "NOW()",
+		Timestamp: time.Now().Format(time.RFC3339),
 	})
 }
 

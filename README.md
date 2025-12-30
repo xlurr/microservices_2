@@ -1,12 +1,12 @@
-🎯 Компоненты системы:
-✅ API Gateway (Nginx)
-✅ Users Service - порт 8001
-✅ Orders Service-1 (реплика) - порт 8002
-✅ Orders Service-2 (реплика) - порт 8003
-✅ Payments Service - порт 8004
-✅ Delivery Service - порт 8005
-✅ pgAdmin (управление БД) - порт 5050
-✅ 4 PostgreSQL базы данных
+Компоненты системы:
+API Gateway (Nginx)
+Users Service - порт 8001
+Orders Service-1 (реплика) - порт 8002
+Orders Service-2 (реплика) - порт 8003
+Payments Service - порт 8004
+Delivery Service - порт 8005
+pgAdmin (управление БД) - порт 5050
+4 PostgreSQL базы данных
 
 📁 Структура проекта создана:
 
