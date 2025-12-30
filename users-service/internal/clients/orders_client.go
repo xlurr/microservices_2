@@ -7,19 +7,16 @@ import (
 	"time"
 )
 
-// DeleteUserOrders удаляет все заказы пользователя
+// DeleteUserOrders удаляет все заказы пользователя через API Gateway
 func DeleteUserOrders(userID int64) error {
-	baseURL := os.Getenv("ORDERS_SERVICE_URL")
-	if baseURL == "" {
-		return fmt.Errorf("ORDERS_SERVICE_URL not set")
+	gateway := os.Getenv("GATEWAY_URL")
+	if gateway == "" {
+		return fmt.Errorf("GATEWAY_URL not set")
 	}
 
-	url := fmt.Sprintf("%s/orders/user/%d", baseURL, userID)
+	url := fmt.Sprintf("%s/api/orders/user/%d", gateway, userID)
 
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
+	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -31,8 +28,8 @@ func DeleteUserOrders(userID int64) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("orders-service returned status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("gateway returned %d", resp.StatusCode)
 	}
 
 	return nil
