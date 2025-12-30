@@ -1,119 +1,129 @@
-PROJECT: Microservices Architecture Demo
-AUTHOR: xlurr
+# Microservices Architecture Demo
 
-==================================================
-DESCRIPTION
-==================================================
+**Author:** xlurr
 
-This project demonstrates a microservices architecture
-where all inter-service communication goes ONLY through
-an API Gateway (Nginx).
+---
 
-Services DO NOT communicate directly with each other.
-The gateway acts as a single entry point and load balancer.
+## Описание
 
-==================================================
-ARCHITECTURE OVERVIEW
-==================================================
+Этот проект демонстрирует микросервисную архитектуру, в которой **все межсервисные взаимодействия происходят ТОЛЬКО через API Gateway (Nginx)**.
 
+Сервисы **не общаются напрямую** друг с другом. Gateway выступает как **единая точка входа** и **балансировщик нагрузки**.
+
+---
+
+## Architecture Overview
+
+```
 Client
-|
-v
+  |
+  v
 API Gateway (Nginx)
-|
-|----> users-service ----> users-db
-|
-|----> orders-service (replica 1) ----\
- | > orders-db
-|----> orders-service (replica 2) ----/
-|
-|----> payments-service ----> payments-db
-|
-|----> delivery-service ----> delivery-db
+  |
+  |----> users-service ----> users-db
+  |
+  |----> orders-service (replica 1) ----\
+  |                                      > orders-db
+  |----> orders-service (replica 2) ----/
+  |
+  |----> payments-service ----> payments-db
+  |
+  |----> delivery-service ----> delivery-db
+```
 
-==================================================
-CORE PRINCIPLES
-==================================================
+---
 
-- No direct service-to-service calls
-- All HTTP traffic goes through API Gateway
-- Load balancing handled by Nginx
-- Orders service runs in multiple replicas
-- Each service has its own database
+## Ключевые принципы
 
-==================================================
-SERVICE COMMUNICATION
-==================================================
+- Отсутствие прямых вызовов между сервисами
+- Весь HTTP-трафик проходит через API Gateway
+- Балансировка нагрузки выполняется Nginx
+- Orders-сервис работает в нескольких репликах
+- У каждого сервиса своя собственная база данных
 
-Each service uses the environment variable:
+---
 
-GATEWAY_URL = http://api-gateway
+## Взаимодействие сервисов
 
-Example (users-service -> orders-service):
+Каждый сервис использует переменную окружения:
 
+```
+GATEWAY_URL=http://api-gateway
+```
+
+### Пример: users-service → orders-service
+
+```
 users-service
-|
-| HTTP request to:
-| http://api-gateway/api/orders/user/{id}
-|
-v
+    |
+    | HTTP-запрос:
+    | http://api-gateway/api/orders/user/{id}
+    |
+    v
 API Gateway (Nginx)
-|
-| load balancing
-|
-v
-orders-service replica
+    |
+    | балансировка нагрузки
+    |
+    v
+orders-service (реплика)
+```
 
-==================================================
-LOAD BALANCING
-==================================================
+Вся логика маршрутизации и балансировки выполняется **на стороне Nginx**, а не в коде сервисов.
 
-Orders service has multiple instances:
+---
 
-orders-service-1
-orders-service-2
+## Балансировка нагрузки
 
-Nginx distributes requests between them automatically.
+Orders-сервис запущен в нескольких экземплярах:
 
-==================================================
-DEMONSTRATION SCRIPT
-==================================================
+- orders-service-1
+- orders-service-2
 
-File: showbalance.sh (located in project root)
+Nginx автоматически распределяет входящие запросы между репликами.
 
-Purpose:
+---
 
-- Send multiple requests through API Gateway
-- Show which orders-service replica handled each request
+## Демонстрационный скрипт
 
-Usage:
+**Файл:** showbalance.sh (корень проекта)
 
+**Назначение:**
+
+- Отправляет несколько запросов через API Gateway
+- Показывает, какая реплика orders-service обработала запрос
+
+**Использование:**
+
+```
 chmod +x showbalance.sh
 ./showbalance.sh
+```
 
-Expected output example:
+**Пример вывода:**
 
+```
 Request 1 -> instance-1
 Request 2 -> instance-2
 Request 3 -> instance-1
 Request 4 -> instance-2
+```
 
-==================================================
-PROJECT START
-==================================================
+---
 
-To start the entire system:
+## Запуск проекта
 
+```
 docker-compose up --build
+```
 
-==================================================
-SUMMARY
-==================================================
+---
 
-This project clearly demonstrates:
+## Итог
 
-- API Gateway pattern
-- Load balancing
-- Service isolation
-- Centralized routing
-- Microservice-based architecture
+Проект наглядно демонстрирует:
+
+- Паттерн API Gateway
+- Централизованную маршрутизацию
+- Балансировку нагрузки
+- Изоляцию сервисов
+- Микросервисную архитектуру
