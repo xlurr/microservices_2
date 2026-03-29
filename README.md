@@ -1,7 +1,5 @@
 # Microservices Architecture Demo
 
-**Author:** xlurr
-
 ---
 
 ## Описание
@@ -14,22 +12,9 @@
 
 ## Architecture Overview
 
-```
-Client
-  |
-  v
-API Gateway (Nginx)
-  |
-  |----> users-service ----> users-db
-  |
-  |----> orders-service (replica 1) ----\
-  |                                      > orders-db
-  |----> orders-service (replica 2) ----/
-  |
-  |----> payments-service ----> payments-db
-  |
-  |----> delivery-service ----> delivery-db
-```
+![architecture](docs/diag.png)
+
+Система состоит из трёх слоёв. **Клиент** отправляет все запросы в единую точку входа — **API Gateway (Nginx :80)**, который маршрутизирует трафик и распределяет нагрузку. Каждый из четырёх **микросервисов на Go** имеет **собственную изолированную базу данных PostgreSQL** — сервисы не имеют доступа к чужим данным напрямую. Orders-сервис запущен в двух репликах (:8002 и :8003), Nginx распределяет между ними запросы по алгоритму round-robin.
 
 ---
 
@@ -40,6 +25,59 @@ API Gateway (Nginx)
 - Балансировка нагрузки выполняется Nginx
 - Orders-сервис работает в нескольких репликах
 - У каждого сервиса своя собственная база данных
+
+---
+
+## Запуск проекта
+
+```bash
+docker-compose up --build
+```
+
+| Сервис           | URL                                      |
+| ---------------- | ---------------------------------------- |
+| API Gateway      | http://localhost:8080                    |
+| Swagger users    | http://localhost:8001/swagger/index.html |
+| Swagger orders   | http://localhost:8002/swagger/index.html |
+| Swagger payments | http://localhost:8004/swagger/index.html |
+| Swagger delivery | http://localhost:8005/swagger/index.html |
+| pgAdmin          | http://localhost:5050                    |
+
+---
+
+## Демонстрация
+
+### Шаг 1 — Проверка запущенных контейнеров
+
+![step1](docs/step1.png)
+
+После `docker-compose up` поднимаются три ключевых контейнера: `api-gateway` (Nginx на порту 80), `orders-service-1` (порт 8002) и `orders-service-2` (порт 8003). Оба инстанса orders-сервиса имеют статус `healthy` и готовы принимать запросы через балансировщик.
+
+---
+
+### Шаг 2 — Round-robin балансировка
+
+![step2](docs/step2.png)
+
+Скрипт `showbalance.sh` отправляет 5 тестовых запросов через API Gateway на эндпоинт `/system-id`. Nginx распределяет запросы между репликами по очереди: нечётные уходят на `instance-1`, чётные — на `instance-2`. Это классический round-robin без session persistence.
+
+---
+
+### Шаг 3 — Нагрузочный тест (50 запросов)
+
+![step3](docs/step3-4.png)
+
+Массовая отправка 50 параллельных запросов подтверждает равномерное распределение: `instance-1` обработал 25 (50%), `instance-2` — 25 (50%). Итоговые логи контейнеров показывают суммарно 170 и 160 запросов соответственно — с учётом предыдущих шагов демонстрации.
+
+---
+
+## REST API
+
+### Swagger UI — Orders Service
+
+![swagger](docs/swagger.png)
+
+Каждый сервис имеет собственную Swagger-документацию. Orders Service предоставляет полный CRUD: `GET /orders`, `POST /orders`, `GET /orders/{id}`, `PUT /orders/{id}`, `DELETE /orders/{id}`. Доступна по адресу `localhost:8002` напрямую или через Gateway.
 
 ---
 
@@ -68,53 +106,20 @@ API Gateway (Nginx)
 orders-service (реплика)
 ```
 
-Вся логика маршрутизации и балансировки выполняется **на стороне Nginx**, а не в коде сервисов.
-
----
-
-## Балансировка нагрузки
-
-Orders-сервис запущен в нескольких экземплярах:
-
-- orders-service-1
-- orders-service-2
-
-Nginx автоматически распределяет входящие запросы между репликами.
+Вся логика маршрутизации выполняется **на стороне Nginx**, а не в коде сервисов.
 
 ---
 
 ## Демонстрационный скрипт
 
-**Файл:** showbalance.sh (корень проекта)
+**Файл:** `showbalance.sh` (корень проекта)
 
-**Назначение:**
-
-- Отправляет несколько запросов через API Gateway
-- Показывает, какая реплика orders-service обработала запрос
-
-**Использование:**
-
-```
+```bash
 chmod +x showbalance.sh
 ./showbalance.sh
 ```
 
-**Пример вывода:**
-
-```
-Request 1 -> instance-1
-Request 2 -> instance-2
-Request 3 -> instance-1
-Request 4 -> instance-2
-```
-
----
-
-## Запуск проекта
-
-```
-docker-compose up --build
-```
+Скрипт проходит 3 фазы: проверка контейнеров → round-robin тест → массовая нагрузка 50 запросов со статистикой распределения.
 
 ---
 
@@ -124,6 +129,6 @@ docker-compose up --build
 
 - Паттерн API Gateway
 - Централизованную маршрутизацию
-- Балансировку нагрузки
-- Изоляцию сервисов
-- Микросервисную архитектуру
+- Балансировку нагрузки (Nginx round-robin)
+- Изоляцию сервисов и баз данных
+- Горизонтальное масштабирование через Docker Compose replicas
